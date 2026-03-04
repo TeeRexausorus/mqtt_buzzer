@@ -17,11 +17,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (binfmt) for ARM
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm,arm64
+
       - name: Install host deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            git rsync coreutils quilt parted qemu-user-static debootstrap \
+            git rsync coreutils quilt parted qemu-user-static qemu-user-binfmt binfmt-support debootstrap \
             zerofree zip dosfstools libarchive-tools libcap2-bin grep xz-utils file curl
 
       - name: Clone pi-gen
