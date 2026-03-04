@@ -2,7 +2,7 @@ import asyncio
 from asyncio import run_coroutine_threadsafe
 from amqtt.client import MQTTClient
 import json
-from gpiozero import Button, LED, RGBLED
+from gpiozero import Button, RGBLED
 
 # Chemin vers le fichier de configuration JSON
 config_file = 'config.json'
@@ -156,6 +156,7 @@ def is_json(myjson):
     try:
         json.loads(myjson)
     except ValueError as e:
+        print(e)
         return False
     return True
 
