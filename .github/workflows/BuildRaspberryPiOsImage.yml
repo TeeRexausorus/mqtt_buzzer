@@ -39,9 +39,19 @@ jobs:
           echo "qemu-arm -> $(readlink -f /usr/local/bin/qemu-arm)"
           qemu-arm --version
 
-      - name: Clone pi-gen
+      - name: Clone pi-gen (Bookworm if available)
         run: |
-          git clone --depth 1 https://github.com/RPi-Distro/pi-gen.git
+          git clone https://github.com/RPi-Distro/pi-gen.git
+          cd pi-gen
+          git fetch --all --tags
+          if git show-ref --verify --quiet refs/remotes/origin/bookworm; then
+            git checkout -b bookworm origin/bookworm
+          elif git rev-parse -q --verify "refs/tags/bookworm" >/dev/null; then
+            git checkout "bookworm"
+          fi
+          echo "pi-gen branch/tag:"
+          git rev-parse --abbrev-ref HEAD
+          git log -1 --oneline
 
       - name: Add custom stage + app payload
         run: |
