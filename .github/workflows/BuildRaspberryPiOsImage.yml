@@ -29,6 +29,16 @@ jobs:
             git rsync coreutils quilt parted qemu-user-static binfmt-support debootstrap \
             zerofree zip dosfstools libarchive-tools libcap2-bin grep xz-utils file curl
 
+      - name: Ensure qemu-arm is available for pi-gen
+        run: |
+          command -v qemu-arm-static
+          sudo ln -sf "$(command -v qemu-arm-static)" /usr/local/bin/qemu-arm
+          if command -v qemu-aarch64-static >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v qemu-aarch64-static)" /usr/local/bin/qemu-aarch64
+          fi
+          echo "qemu-arm -> $(readlink -f /usr/local/bin/qemu-arm)"
+          qemu-arm --version
+
       - name: Clone pi-gen
         run: |
           git clone --depth 1 https://github.com/RPi-Distro/pi-gen.git
