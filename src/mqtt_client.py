@@ -6,11 +6,9 @@ from gpiozero import Button, RGBLED
 
 # Chemin vers le fichier de configuration JSON
 config_file = '/opt/mqttPython/src/config.json'
-client = MQTTClient()
+client = None
 config = {}
 controller: "ButtonController|None" = None
-locked_array: []
-
 
 # Lecture du fichier JSON
 def lire_config():
@@ -41,6 +39,9 @@ class ButtonController:
         self.loop = loop
         self.locked_array = list()
 
+        if len(self.led_pins) % 3 != 0:
+            raise ValueError("led_pins doit contenir un multiple de 3 valeurs (R, G, B par buzzer).")
+
         # Boutons en pull-down (pull_up=False). Anti-rebond ~200 ms
         self.buttons = []
         for idx, pin in enumerate(self.input_pins):
@@ -49,15 +50,22 @@ class ButtonController:
             self.buttons.append(b)
 
         # LEDs
-        self.leds = [RGBLED(self.led_pins[p * 3], self.led_pins[p * 3 + 1], self.led_pins[p * 3 + 2], active_high=False)
-                     for p in range(int(len(self.led_pins) / 3))]
+        self.leds = [
+            RGBLED(
+                self.led_pins[p * 3],
+                self.led_pins[p * 3 + 1],
+                self.led_pins[p * 3 + 2],
+                active_high=False
+            )
+            for p in range(int(len(self.led_pins) / 3))
+        ]
         self.locked = False
         self.active_led_index = None
         self.lock_timer = None
         self.idle_task = None
 
         # Démarre le mode idle
-        if config["idle"]:
+        if config.get("idle", False):
             self.start_idle_animation()
 
     def start_idle_animation(self):
@@ -84,19 +92,21 @@ class ButtonController:
     def handle_button_press(self, index):
         print(f"[DEBUG] PRESS index={index} gpio={self.input_pins[index]}")
 
-        blocked_color = tuple(c/255 for c in config["blocked_color"])
-        valid_color = tuple(c/255 for c in config["valid_color"])
+        blocked_color = tuple(c / 255 for c in config["blocked_color"])
+        valid_color = tuple(c / 255 for c in config["valid_color"])
 
         if self.locked or index in self.locked_array:
             return
 
         self.locked = True
-        # print(f"Le buzzer {index + 1} a appuyé.")
 
         fut = run_coroutine_threadsafe(publish_buzzer(client, index), self.loop)
-        fut.add_done_callback(lambda f: print("[MQTT OK] publish") if not f.exception() else print("[MQTT ERR]", f.exception()))
+        fut.add_done_callback(
+            lambda f: print("[MQTT OK] publish") if not f.exception() else print("[MQTT ERR]", f.exception())
+        )
 
         self.active_led_index = index
+
         # stoppe le mode idle
         if self.idle_task and not self.idle_task.done():
             self.idle_task.cancel()
@@ -109,31 +119,37 @@ class ButtonController:
         import colorsys
         return colorsys.hsv_to_rgb(h, s, v)
 
+    def _valid_led_index(self, led_ind):
+        return isinstance(led_ind, int) and 1 <= led_ind <= len(self.leds)
+
     def release(self, indices):
         if indices is not None and len(indices) > 0:
             for led_ind in indices:
-                self.leds[led_ind - 1].off()
+                if self._valid_led_index(led_ind):
+                    self.leds[led_ind - 1].off()
         else:
             for led in self.leds:
                 led.off()
             self.locked = False
         self.active_led_index = None
-        if config["idle"]:
+        if config.get("idle", False):
             self.start_idle_animation()
 
     def lock(self, lock_array):
         if lock_array is not None:
             for led_ind in lock_array:
-                self.leds[led_ind - 1].off()
-                if (led_ind - 1) not in self.locked_array:
-                    self.locked_array.append(led_ind - 1)
+                if self._valid_led_index(led_ind):
+                    self.leds[led_ind - 1].off()
+                    if (led_ind - 1) not in self.locked_array:
+                        self.locked_array.append(led_ind - 1)
 
     def unlock(self, unlock_array):
         if unlock_array is not None:
             for led_ind in unlock_array:
-                self.leds[led_ind - 1].off()
-                if (led_ind - 1) in self.locked_array:
-                    del self.locked_array[self.locked_array.index(led_ind - 1)]
+                if self._valid_led_index(led_ind):
+                    self.leds[led_ind - 1].off()
+                    if (led_ind - 1) in self.locked_array:
+                        self.locked_array.remove(led_ind - 1)
 
     def cleanup(self):
         for led in self.leds:
@@ -152,41 +168,46 @@ class ButtonController:
 # fin classe
 
 
-def is_json(myjson):
+def parse_json_or_none(payload):
     try:
-        json.loads(myjson)
-    except ValueError as e:
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
         print(e)
-        return False
+        return None
     return True
 
 
 def handle_message(data, topic):
     global config, controller
     print(f"Received message: {data} on topic: {topic}")
-    if is_json(data):
-        message = json.loads(data)
-        if topic == "buzzer/config":
-            if "blocked_color" in message:
-                config["blocked_color"] = message["blocked_color"]
-            if "valid_color" in message:
-                config["valid_color"] = message["valid_color"]
-            if "idle" in message:
-                config["idle"] = message["idle"]
-            ecrire_config(config)
-        elif topic == "buzzer/control":
-            if "release" in message:
-                controller.release(None if message["release"] == "" else message["release"])
-            if "lock" in message:
-                controller.lock(message["lock"])
-            if "unlock" in message:
-                controller.unlock(message["unlock"])
-            if "start" in message:
-                print("activated")
-            if "block" in message:
-                print("blocked")
-            if "shameThem" in message:
-                print("allRed")
+
+    message = parse_json_or_none(data)
+    if message is None:
+        return
+
+    if topic == "buzzer/config":
+        if "blocked_color" in message:
+            config["blocked_color"] = message["blocked_color"]
+        if "valid_color" in message:
+            config["valid_color"] = message["valid_color"]
+        if "idle" in message:
+            config["idle"] = message["idle"]
+        ecrire_config(config)
+    elif topic == "buzzer/control":
+        if "release" in message:
+            controller.release(None if message["release"] == "" else message["release"])
+        if "lock" in message:
+            controller.lock(message["lock"])
+        if "unlock" in message:
+            controller.unlock(message["unlock"])
+        if "start" in message:
+            print("activated")
+        if "block" in message:
+            print("blocked")
+        if "shameThem" in message:
+            print("allRed")
 
 
 async def mqtt_client():
@@ -212,14 +233,14 @@ async def mqtt_client():
                 packet = message.publish_packet
                 handle_message(packet.payload.data, packet.variable_header.topic_name)
 
-        except Exception as e:
-            print(f"Erreur MQTT : {e}, nouvelle tentative dans 5 secondes...")
-            await asyncio.sleep(5)
-
         except asyncio.CancelledError:
             await client.disconnect()
             print("Déconnexion MQTT propre")
             break
+
+        except Exception as e:
+            print(f"Erreur MQTT : {e}, nouvelle tentative dans 5 secondes...")
+            await asyncio.sleep(5)
 
 
 if __name__ == '__main__':

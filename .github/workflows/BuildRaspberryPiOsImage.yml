@@ -62,7 +62,7 @@ jobs:
 
           # 2) Copie l’app dans le payload pi-gen (dans l’image)
           mkdir -p pi-gen/stage2/04-mqtt/files/app
-          rsync -a ./src ./README.md ./watch_gpio.py ./simulTest.py pi-gen/stage2/04-mqtt/files/app/ || true
+          rsync -a ./src ./README.md ./watch_gpio.py pi-gen/stage2/04-mqtt/files/app/
 
           # 2b) Configuration Mosquitto pour écoute réseau
           mkdir -p pi-gen/stage2/04-mqtt/files/mosquitto
@@ -175,15 +175,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP="$(ls -1 pi-gen/deploy/*-lite.zip | head -n 1)"
-          echo "Using ZIP: $ZIP"
-
-          mkdir -p /tmp/rpi-image-check
-          cp "$ZIP" /tmp/rpi-image-check/
-          cd /tmp/rpi-image-check
-          unzip -q "$(basename "$ZIP")"
-
-          IMG="$(ls -1 *.img | head -n 1)"
+          IMG="$(ls -1 pi-gen/deploy/*-lite.img | head -n 1)"
           echo "Using IMG: $IMG"
           ls -lah "$IMG"
 
@@ -218,7 +210,7 @@ jobs:
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rpi-os-image-lite
+          name: buzzer-central-lite
           path: pi-gen/deploy/*-lite.img
           if-no-files-found: error
 
