@@ -208,6 +208,7 @@ jobs:
 
       - name: Compress image for distribution
         run: |
+          sudo chown -R "$(id -u):$(id -g)" pi-gen/deploy
           for img in pi-gen/deploy/*-lite.img; do
             zip -9 "${img}.zip" "$img"
           done
