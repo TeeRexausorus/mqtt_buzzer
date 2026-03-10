@@ -31,4 +31,4 @@ jobs:
 
       - name: Show coverage report
         run: |
-          coverage report -m
+          coverage report -m --fail-under=85
